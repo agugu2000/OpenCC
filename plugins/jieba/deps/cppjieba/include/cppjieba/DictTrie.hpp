@@ -24,6 +24,7 @@ const size_t DICT_COLUMN_NUM = 3;
 const char* const UNKNOWN_TAG = "";
 
 class DictTrie {
+  friend class opencc::JiebaSegmentation;
  public:
   struct PrecomputedDict {
     std::vector<DictUnit> node_infos;
@@ -304,6 +305,37 @@ class DictTrie {
     entry.node_infos = std::shared_ptr<const std::vector<DictUnit> >(new std::vector<DictUnit>(node_infos));
     return entry;
   }
+
+  // ========== OPENCC_MOD: 内存文本词典加载 ==========
+  static PrecomputedDict BuildPrecomputedDictFromBuffer(const char* data, size_t size) {
+    std::istringstream iss(std::string(data, size));
+    std::string line;
+    std::vector<std::string> buf;
+    std::vector<DictUnit> node_infos;
+
+    while (getline(iss, line)) {
+      Split(line, buf, " ");
+      XCHECK(buf.size() == DICT_COLUMN_NUM) << "split result illegal, line:" << line;
+      DictUnit node_info;
+      XCHECK(DecodeUTF8RunesInString(buf[0], node_info.word)) << "UTF-8 decode failed for dict word: " << buf[0];
+      node_info.weight = atof(buf[1].c_str());
+      node_info.tag = buf[2];
+      node_infos.push_back(node_info);
+    }
+    XCHECK(!node_infos.empty()) << "text jieba dictionary is empty";
+
+    PrecomputedDict precomputed;
+    precomputed.freq_sum = CalcFreqSum(node_infos);
+    CalculateWeight(node_infos, precomputed.freq_sum);
+    std::vector<DictUnit> sorted = node_infos;
+    std::sort(sorted.begin(), sorted.end(), WeightCompare);
+    precomputed.min_weight = sorted.front().weight;
+    precomputed.max_weight = sorted.back().weight;
+    precomputed.median_weight = sorted[sorted.size() / 2].weight;
+    precomputed.node_infos = node_infos;
+    return precomputed;
+  }
+  // ==================================================
 
   static const DictCacheEntry& GetDictCache(const std::string& filePath) {
     static std::unordered_map<std::string, DictCacheEntry> cache;

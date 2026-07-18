@@ -8,11 +8,11 @@ namespace cppjieba {
 
 class Jieba {
  public:
-  Jieba(const string& dict_path = "", 
+  Jieba(const string& dict_path = "",
         const string& model_path = "",
-        const string& user_dict_path = "", 
-        const string& idf_path = "", 
-        const string& stop_word_path = "") 
+        const string& user_dict_path = "",
+        const string& idf_path = "",
+        const string& stop_word_path = "")
     : dict_trie_(getPath(dict_path, "jieba.dict.utf8"), getPath(user_dict_path, "user.dict.utf8")),
       model_(getPath(model_path, "hmm_model.utf8")),
       mp_seg_(&dict_trie_),
@@ -20,8 +20,8 @@ class Jieba {
       mix_seg_(&dict_trie_, &model_),
       full_seg_(&dict_trie_),
       query_seg_(&dict_trie_, &model_),
-      extractor(&dict_trie_, &model_, 
-                getPath(idf_path, "idf.utf8"), 
+      extractor(&dict_trie_, &model_,
+                getPath(idf_path, "idf.utf8"),
                 getPath(stop_word_path, "stop_words.utf8")) {
   }
   Jieba(const DictTrie::PrecomputedDict& dict,
@@ -40,6 +40,24 @@ class Jieba {
                 getPath(idf_path, "idf.utf8"),
                 getPath(stop_word_path, "stop_words.utf8")) {
   }
+  // ========== OPENCC_MOD: 重载Jieba (start) ==========
+  Jieba(const DictTrie::PrecomputedDict& dict,
+        const char* modelData, size_t modelSize,
+        const string& user_dict_path,
+        const string& idf_path,
+        const string& stop_word_path)
+    : dict_trie_(dict, user_dict_path),
+      model_(modelData, modelSize),
+      mp_seg_(&dict_trie_),
+      hmm_seg_(&model_),
+      mix_seg_(&dict_trie_, &model_),
+      full_seg_(&dict_trie_),
+      query_seg_(&dict_trie_, &model_),
+      extractor(&dict_trie_, &model_,
+                getPath(idf_path, "idf.utf8"),
+                getPath(stop_word_path, "stop_words.utf8")) {
+  }
+  // ========== OPENCC_MOD: end ==========
   ~Jieba() {
   }
 
@@ -79,7 +97,7 @@ class Jieba {
   void CutSmall(const string& sentence, vector<Word>& words, size_t max_word_len) const {
     mp_seg_.Cut(sentence, words, max_word_len);
   }
-  
+
   void Tag(const string& sentence, vector<pair<string, string> >& words) const {
     mix_seg_.Tag(sentence, words);
   }
@@ -97,7 +115,7 @@ class Jieba {
   bool DeleteUserWord(const string& word, const string& tag = UNKNOWN_TAG) {
     return dict_trie_.DeleteUserWord(word, tag);
   }
-  
+
   bool Find(const string& word)
   {
     return dict_trie_.Find(word);
@@ -114,8 +132,8 @@ class Jieba {
 
   const DictTrie* GetDictTrie() const {
     return &dict_trie_;
-  } 
-  
+  }
+
   const HMMModel* GetHMMModel() const {
     return &model_;
   }
@@ -137,7 +155,7 @@ class Jieba {
     if (dir.empty()) {
         return filename;
     }
-    
+
     char last_char = dir[dir.length() - 1];
     if (last_char == '/' || last_char == '\\') {
         return dir + filename;
@@ -168,7 +186,7 @@ class Jieba {
 
   DictTrie dict_trie_;
   HMMModel model_;
-  
+
   // They share the same dict trie and model
   MPSegment mp_seg_;
   HMMSegment hmm_seg_;

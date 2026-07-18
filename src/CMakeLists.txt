@@ -83,6 +83,7 @@ set(
   TextDict.cpp
   UTF8StringSlice.cpp
   UTF8Util.cpp
+  ${PROJECT_SOURCE_DIR}/plugins/jieba/src/JiebaSegmentation.cpp
 )
 
 set(UNITTESTS
@@ -105,6 +106,9 @@ set(UNITTESTS
 )
 
 include_directories(SYSTEM ../deps/darts-clone-0.32h/include)
+include_directories("${PROJECT_SOURCE_DIR}/plugins/jieba/include")
+include_directories("${PROJECT_SOURCE_DIR}/plugins/jieba/deps/cppjieba/include")
+
 set(
   LIBOPENCC_PRIVATE_HEADERS
   ${LIBOPENCC_PRIVATE_HEADERS}
@@ -149,7 +153,7 @@ source_group(libopencc FILES
   ${LIBOPENCC_HEADERS}
   ${LIBOPENCC_PRIVATE_HEADERS}
 )
-target_link_libraries(libopencc marisa)
+target_link_libraries(libopencc marisa zlibstatic)
 if (NOT BUILD_SHARED_LIBS)
   target_compile_definitions(libopencc PUBLIC Opencc_BUILT_AS_STATIC)
 endif()

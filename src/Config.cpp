@@ -43,6 +43,7 @@
 #include "PluginSegmentation.hpp"
 #include "TextDict.hpp"
 #include "UTF8Util.hpp"
+#include "JiebaSegmentation.hpp"
 
 #include "DartsDict.hpp"
 
@@ -55,6 +56,8 @@ static const char kConfigSchemaJson[] =
 namespace opencc {
 
 namespace {
+
+bool isRegularFile(const std::string& path);
 
 std::string GetParentDirectory(const std::string& path);
 
@@ -592,6 +595,20 @@ public:
       // Required: dict
       DictPtr dict = ParseDict(GetObjectProperty(doc, "dict"), true);
       segmentation = SegmentationPtr(new MaxMatchSegmentation(dict));
+    } else if (type == "jieba") {
+      const JSONValue& resources = GetObjectProperty(doc, "resources");
+      std::string dictPath = GetStringProperty(resources, "dict_path");
+      std::string modelPath = GetStringProperty(resources, "model_path");
+      std::string userDictPath = resources.HasMember("user_dict_path")
+          ? GetStringProperty(resources, "user_dict_path") : "";
+      std::string idfPath = resources.HasMember("idf_path")
+          ? GetStringProperty(resources, "idf_path") : "";
+      std::string stopWordsPath = resources.HasMember("stop_words_path")
+          ? GetStringProperty(resources, "stop_words_path") : "";
+
+      segmentation = SegmentationPtr(new JiebaSegmentation(
+          resourceProvider, dictPath, modelPath,
+          userDictPath, idfPath, stopWordsPath));
     } else {
       PluginConfigPairs configPairs;
       configPairs.push_back(std::make_pair("__config_dir", configDirectory));

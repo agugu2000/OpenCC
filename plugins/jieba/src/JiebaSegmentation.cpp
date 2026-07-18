@@ -286,6 +286,121 @@ DictTrie::PrecomputedDict LoadMergedJiebaDict(const std::string& dictPath) {
 
   return precomputed;
 }
+
+// ========== OPENCC_MOD: 内存版 LoadMergedJiebaDict (start) ==========
+DictTrie::PrecomputedDict LoadMergedJiebaDictFromBuffer(const char* data, size_t size) {
+  const std::shared_ptr<MarisaDict> dict =
+      MarisaDict::NewFromBuffer(data, size);
+  const LexiconPtr lexicon = dict->GetLexicon();
+
+  std::vector<RawMergedEntry> entries;
+  entries.reserve(lexicon->Length());
+  double base_freq_sum = 0.0;
+  bool saw_metadata = false;
+
+  for (size_t i = 0; i < lexicon->Length(); ++i) {
+    const DictEntry* entry = lexicon->At(i);
+    const std::vector<std::string> values = entry->Values();
+    RawMergedEntry raw = {entry->Key(), "", 0.0, false, false};
+
+    if (values.size() == 3) {
+      saw_metadata = true;
+      raw.tag = values[1];
+      if (values[2] == "base") {
+        if (!ParsePositiveDouble(values[0], &raw.freq)) {
+          throw std::runtime_error("invalid merged jieba base frequency for: " +
+                                   raw.word);
+        }
+        raw.contributes_to_base_sum = true;
+      } else if (values[2] == "user_freq") {
+        if (!ParseNonNegativeDouble(values[0], &raw.freq)) {
+          throw std::runtime_error(
+              "invalid merged jieba user frequency for: " + raw.word);
+        }
+        if (raw.freq == 0.0) {
+          raw.uses_default_weight = true;
+        }
+      } else if (values[2] == "user_default") {
+        raw.uses_default_weight = true;
+      } else {
+        throw std::runtime_error("unknown merged jieba entry kind for: " +
+                                 raw.word);
+      }
+    } else if (values.size() == 2) {
+      // Backward-compatible fallback for earlier generated dictionaries.
+      raw.tag = values[1];
+      if (!ParsePositiveDouble(values[0], &raw.freq)) {
+        throw std::runtime_error("invalid merged jieba frequency for: " +
+                                 raw.word);
+      }
+      raw.contributes_to_base_sum = true;
+    } else if (values.size() == 1) {
+      raw.tag = values[0];
+      raw.uses_default_weight = true;
+    } else {
+      throw std::runtime_error("invalid merged jieba values for: " + raw.word);
+    }
+
+    if (raw.contributes_to_base_sum) {
+      base_freq_sum += raw.freq;
+    }
+    entries.push_back(raw);
+  }
+
+  if (entries.empty()) {
+    throw std::runtime_error("merged jieba dictionary is empty");
+  }
+  if (base_freq_sum <= 0.0) {
+    throw std::runtime_error("merged jieba dictionary has no base frequencies");
+  }
+
+  std::vector<double> base_weights;
+  base_weights.reserve(entries.size());
+  for (size_t i = 0; i < entries.size(); ++i) {
+    if (entries[i].contributes_to_base_sum) {
+      base_weights.push_back(std::log(entries[i].freq / base_freq_sum));
+    } else if (!saw_metadata && !entries[i].uses_default_weight &&
+               entries[i].freq > 0.0) {
+      base_weights.push_back(std::log(entries[i].freq / base_freq_sum));
+    }
+  }
+  if (base_weights.empty()) {
+    throw std::runtime_error(
+        "merged jieba dictionary has no weights for default entries");
+  }
+
+  std::sort(base_weights.begin(), base_weights.end());
+  DictTrie::PrecomputedDict precomputed;
+  precomputed.freq_sum = base_freq_sum;
+  precomputed.min_weight = base_weights.front();
+  precomputed.max_weight = base_weights.back();
+  precomputed.median_weight = base_weights[base_weights.size() / 2];
+  precomputed.node_infos.reserve(entries.size());
+
+  for (size_t i = 0; i < entries.size(); ++i) {
+    DictUnit node_info;
+    if (!cppjieba::DecodeUTF8RunesInString(entries[i].word, node_info.word)) {
+      throw std::runtime_error("UTF-8 decode failed for merged jieba word: " +
+                               entries[i].word);
+    }
+    node_info.tag = entries[i].tag;
+    if (entries[i].uses_default_weight) {
+      node_info.weight = precomputed.median_weight;
+    } else {
+      node_info.weight = std::log(entries[i].freq / base_freq_sum);
+    }
+    const bool is_user_entry =
+        !entries[i].contributes_to_base_sum && (entries[i].uses_default_weight ||
+                                                entries[i].freq >= 0.0);
+    if (is_user_entry && node_info.word.size() == 1) {
+      precomputed.single_char_user_words.insert(node_info.word[0]);
+    }
+    precomputed.node_infos.push_back(node_info);
+  }
+
+  return precomputed;
+}
+// ========== OPENCC_MOD: end ==========
 } // namespace
 
 JiebaSegmentation::JiebaSegmentation(const std::string& dictPath,
@@ -313,6 +428,42 @@ JiebaSegmentation::JiebaSegmentation(const std::string& dictPath,
                         ? ResolveAuxPath(dictPath, modelPath, "stop_words.utf8")
                         : stopWordsPath)) {
 }
+
+// ========== OPENCC_MOD: ResourceProvider 构造函数 (start) ==========
+JiebaSegmentation::JiebaSegmentation(
+    std::shared_ptr<ResourceProvider> provider,
+    const std::string& dictPath,
+    const std::string& modelPath,
+    const std::string& userDictPath,
+    const std::string& idfPath,
+    const std::string& stopWordsPath)
+    : jieba_(nullptr) {
+  std::string resolvedDictPath = dictPath;
+  std::shared_ptr<const ResourceProvider::Resource> dictRes;
+  try {
+    dictRes = provider->GetResource(resolvedDictPath);
+  } catch (const FileNotFound&) {
+    if (EndsWith(resolvedDictPath, "jieba_merged.ocd2")) {
+      resolvedDictPath = resolvedDictPath.substr(0, resolvedDictPath.size() - 17) + "jieba.dict.utf8";
+      dictRes = provider->GetResource(resolvedDictPath);
+    } else {
+      throw;
+    }
+  }
+  auto modelRes = provider->GetResource(modelPath);
+
+  DictTrie::PrecomputedDict dict =
+      LooksLikeOpenccMergedDict(resolvedDictPath)
+          ? LoadMergedJiebaDictFromBuffer(dictRes->Data(), dictRes->Size())
+          : DictTrie::BuildPrecomputedDictFromBuffer(dictRes->Data(), dictRes->Size());
+
+  jieba_.reset(new cppjieba::Jieba(
+      dict, modelRes->Data(), modelRes->Size(),
+      userDictPath.empty() ? "" : userDictPath,
+      idfPath.empty() ? "" : idfPath,
+      stopWordsPath.empty() ? "" : stopWordsPath));
+}
+// ========== OPENCC_MOD: end ==========
 
 JiebaSegmentation::~JiebaSegmentation() = default;
 

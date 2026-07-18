@@ -20,8 +20,11 @@
 
 #include "Config.hpp"
 #include "Converter.hpp"
+#include "Exception.hpp"
 #include "UTF8Util.hpp"
 #include "opencc.h"
+#include <rapidjson/writer.h>
+#include <rapidjson/stringbuffer.h>
 
 #ifdef BAZEL
 #include "tools/cpp/runfiles/runfiles.h"
@@ -82,6 +85,23 @@ struct InternalData {
     }
   }
 };
+
+// 辅助宏：在 C API 函数中统一捕获所有异常
+#define OPENCC_C_API_CATCH_BEGIN try {
+#define OPENCC_C_API_CATCH_END(retval) \
+  } catch (opencc::Exception& ex) { \
+    cError = ex.what(); \
+    return retval; \
+  } catch (std::runtime_error& ex) { \
+    cError = ex.what(); \
+    return retval; \
+  } catch (std::exception& ex) { \
+    cError = ex.what(); \
+    return retval; \
+  } catch (...) { \
+    cError = "Unknown C++ exception"; \
+    return retval; \
+  }
 
 } // namespace
 
@@ -184,32 +204,29 @@ SimpleConverter::Inspect(std::string_view input) const {
 
 static std::string cError;
 
+// ==================== C API 实现（完整异常捕获）====================
+
 opencc_t opencc_open_internal(const char* configFileName) {
-  try {
+  OPENCC_C_API_CATCH_BEGIN
     if (configFileName == nullptr) {
       configFileName = OPENCC_DEFAULT_CONFIG_SIMP_TO_TRAD;
     }
     SimpleConverter* instance = new SimpleConverter(configFileName);
     return instance;
-  } catch (std::runtime_error& ex) {
-    cError = ex.what();
-    return reinterpret_cast<opencc_t>(-1);
-  }
+  OPENCC_C_API_CATCH_END(nullptr)
 }
 
 #ifdef _MSC_VER
 opencc_t opencc_open_w(const wchar_t* configFileName) {
-  try {
+  OPENCC_C_API_CATCH_BEGIN
     if (configFileName == nullptr) {
       return opencc_open_internal(nullptr);
     }
     std::string utf8fn = UTF8Util::U16ToU8(configFileName);
     return opencc_open_internal(utf8fn.c_str());
-  } catch (std::runtime_error& ex) {
-    cError = ex.what();
-    return reinterpret_cast<opencc_t>(-1);
-  }
+  OPENCC_C_API_CATCH_END(nullptr)
 }
+
 opencc_t opencc_open(const char* configFileName) {
   if (configFileName == nullptr) {
     return opencc_open_internal(nullptr);
@@ -229,36 +246,109 @@ opencc_t opencc_open(const char* configFileName) {
 #endif
 
 int opencc_close(opencc_t opencc) {
-  SimpleConverter* instance = reinterpret_cast<SimpleConverter*>(opencc);
-  delete instance;
-  return 0;
+  OPENCC_C_API_CATCH_BEGIN
+    SimpleConverter* instance = reinterpret_cast<SimpleConverter*>(opencc);
+    delete instance;
+    return 0;
+  OPENCC_C_API_CATCH_END(1)
 }
 
 size_t opencc_convert_utf8_to_buffer(opencc_t opencc, const char* input,
                                      size_t length, char* output) {
-  try {
+  OPENCC_C_API_CATCH_BEGIN
     SimpleConverter* instance = reinterpret_cast<SimpleConverter*>(opencc);
     return instance->Convert(input, length, output);
-  } catch (std::runtime_error& ex) {
-    cError = ex.what();
-    return static_cast<size_t>(-1);
-  }
+  OPENCC_C_API_CATCH_END(static_cast<size_t>(-1))
 }
 
 char* opencc_convert_utf8(opencc_t opencc, const char* input, size_t length) {
-  try {
+  OPENCC_C_API_CATCH_BEGIN
     SimpleConverter* instance = reinterpret_cast<SimpleConverter*>(opencc);
     std::string converted = instance->Convert(input, length);
     char* output = new char[converted.length() + 1];
     memcpy(output, converted.c_str(), converted.length());
     output[converted.length()] = '\0';
     return output;
-  } catch (std::runtime_error& ex) {
-    cError = ex.what();
-    return nullptr;
-  }
+  OPENCC_C_API_CATCH_END(nullptr)
 }
 
 void opencc_convert_utf8_free(char* str) { delete[] str; }
 
 const char* opencc_error(void) { return cError.c_str(); }
+
+namespace {
+template <typename Writer>
+void WriteInspectionResultJson(Writer& writer,
+                               const ConversionInspectionResult& result) {
+  writer.StartObject();
+  writer.Key("input");
+  writer.String(result.input.c_str(), result.input.size());
+  writer.Key("output");
+  writer.String(result.output.c_str(), result.output.size());
+  writer.Key("segments");
+  writer.StartArray();
+  for (const auto& seg : result.segments) {
+    writer.String(seg.c_str(), seg.size());
+  }
+  writer.EndArray();
+  writer.Key("stages");
+  writer.StartArray();
+  for (const auto& stage : result.stages) {
+    writer.StartObject();
+    writer.Key("index");
+    writer.Uint64(stage.index);
+    writer.Key("segments");
+    writer.StartArray();
+    for (const auto& seg : stage.segments) {
+      writer.String(seg.c_str(), seg.size());
+    }
+    writer.EndArray();
+    writer.EndObject();
+  }
+  writer.EndArray();
+  writer.Key("pipelineStages");
+  writer.StartArray();
+  for (const auto& ps : result.pipelineStages) {
+    WriteInspectionResultJson(writer, ps);
+  }
+  writer.EndArray();
+  writer.EndObject();
+}
+} // namespace
+
+opencc_t opencc_open_with_zip(const char* configFileName,
+                     int includeTofuRiskDictionaries,
+                     const char* resourceZipPath) {
+  OPENCC_C_API_CATCH_BEGIN
+    ConfigLoadOptions options;
+    options.includeTofuRiskDictionaries =
+        (includeTofuRiskDictionaries != 0);
+
+    if (resourceZipPath != nullptr && resourceZipPath[0] != '\0') {
+      std::shared_ptr<ResourceProvider> provider(
+          new ZipResourceProvider(resourceZipPath));
+      return new SimpleConverter(configFileName, provider, options);
+    }
+    return new SimpleConverter(configFileName, options);
+  OPENCC_C_API_CATCH_END(nullptr)
+}
+
+char* opencc_inspect_utf8(opencc_t opencc, const char* input, size_t length) {
+  OPENCC_C_API_CATCH_BEGIN
+    SimpleConverter* instance = reinterpret_cast<SimpleConverter*>(opencc);
+    const ConversionInspectionResult result =
+        length == static_cast<size_t>(-1)
+            ? instance->Inspect(std::string_view(input))
+            : instance->Inspect(std::string_view(input, length));
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    WriteInspectionResultJson(writer, result);
+
+    const std::string json = buffer.GetString();
+    char* output = new char[json.length() + 1];
+    memcpy(output, json.c_str(), json.length());
+    output[json.length()] = '\0';
+    return output;
+  OPENCC_C_API_CATCH_END(nullptr)
+}
