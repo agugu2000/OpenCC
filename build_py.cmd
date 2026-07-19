@@ -29,14 +29,21 @@ set OUT_DIR=%BUILD_DIR%\py_release
 :: ==================== 1. 编译 ====================
 echo.
 if "%BUILD_TYPE%"=="pyd" (
-    echo ===== 编译 OpenCC PYD（静态链接）=====
+    echo ===== 编译 OpenCC PYD（静态链接 + 体积优化）=====
     set CMAKE_EXTRA=-DBUILD_SHARED_LIBS=OFF -DBUILD_PYTHON=ON
 ) else (
-    echo ===== 编译 OpenCC DLL ===============
-    set CMAKE_EXTRA=-DBUILD_SHARED_LIBS=ON -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+    echo ===== 编译 OpenCC DLL（静态链接 + 体积优化）=====
+    set CMAKE_EXTRA=-DBUILD_SHARED_LIBS=ON -DBUILD_PYTHON=OFF
 )
 
-cmake -S "%SRC_DIR%" -B "%BUILD_DIR%" !CMAKE_EXTRA! -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="/utf-8" -DENABLE_GTEST=OFF -DENABLE_BENCHMARK=OFF -DBUILD_OPENCC_JIEBA_PLUGIN=OFF
+cmake -S "%SRC_DIR%" -B "%BUILD_DIR%" !CMAKE_EXTRA! ^
+    -DCMAKE_BUILD_TYPE=Release ^
+    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
+    -DCMAKE_CXX_FLAGS="/utf-8" ^
+    -DCMAKE_C_FLAGS="/utf-8" ^
+    -DENABLE_GTEST=OFF ^
+    -DENABLE_BENCHMARK=OFF ^
+    -DBUILD_OPENCC_JIEBA_PLUGIN=OFF
 if errorlevel 1 (
     echo CMake 配置失败！
     pause
@@ -67,7 +74,7 @@ mkdir "%ZIP_TMP%\jieba_dict"
 if "%BUILD_TYPE%"=="pyd" (
     echo.
     echo ===== 复制 .pyd 和调用PY =====
-	copy "%SRC_DIR%\python\opencc\RegionalReplaceCollector.py" "%OUT_DIR%\"
+	copy "%SRC_DIR%\python\opencc\RegionalReplacer.py" "%OUT_DIR%\"
     for %%f in ("%BUILD_DIR%\Release\opencc_clib*.pyd") do (
         copy "%%f" "%OUT_DIR%\opencc_clib.pyd"
         echo %%f -^> opencc_clib.pyd
@@ -78,7 +85,7 @@ if "%BUILD_TYPE%"=="pyd" (
 if "%BUILD_TYPE%"=="dll" (
     echo.
     echo ===== 复制 opencc.dll 和调用PY =====
-	copy "%SRC_DIR%\python\opencc\RegionalReplaceCollector.py" "%OUT_DIR%\"
+	copy "%SRC_DIR%\python\opencc\RegionalReplacer.py" "%OUT_DIR%\"
     if exist "%BUILD_DIR%\src\Release\opencc.dll" (
         copy "%BUILD_DIR%\src\Release\opencc.dll" "%OUT_DIR%\"
     ) else if exist "%BUILD_DIR%\src\tools\Release\opencc.dll" (
