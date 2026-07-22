@@ -73,8 +73,8 @@ mkdir "%ZIP_TMP%\jieba_dict"
 :: ==================== 4. 复制 .pyd（仅 PYD 模式）====================
 if "%BUILD_TYPE%"=="pyd" (
     echo.
-    echo ===== 复制 .pyd 和调用PY =====
-	copy "%SRC_DIR%\python\opencc\RegionalReplacer.py" "%OUT_DIR%\"
+    echo ===== 生成 RegionalReplacer.py（含多字映射）=====
+    python "%SRC_DIR%\python\opencc\build_multi_char_dict.py" "%SRC_DIR%\data\dictionary" "%SRC_DIR%\python\opencc\RegionalReplacer.py" "%OUT_DIR%\RegionalReplacer.py"
     for %%f in ("%BUILD_DIR%\Release\opencc_clib*.pyd") do (
         copy "%%f" "%OUT_DIR%\opencc_clib.pyd"
         echo %%f -^> opencc_clib.pyd
@@ -84,8 +84,8 @@ if "%BUILD_TYPE%"=="pyd" (
 :: ==================== 5. 复制 opencc.dll（仅 DLL 模式）====================
 if "%BUILD_TYPE%"=="dll" (
     echo.
-    echo ===== 复制 opencc.dll 和调用PY =====
-	copy "%SRC_DIR%\python\opencc\RegionalReplacer.py" "%OUT_DIR%\"
+    echo ===== 生成 RegionalReplacer.py（含多字映射）=====
+    python "%SRC_DIR%\python\opencc\build_multi_char_dict.py" "%SRC_DIR%\data\dictionary" "%SRC_DIR%\python\opencc\RegionalReplacer.py" "%OUT_DIR%\RegionalReplacer.py"
     if exist "%BUILD_DIR%\src\Release\opencc.dll" (
         copy "%BUILD_DIR%\src\Release\opencc.dll" "%OUT_DIR%\"
     ) else if exist "%BUILD_DIR%\src\tools\Release\opencc.dll" (
