@@ -218,7 +218,6 @@ def get_regional_replaces() -> List[Tuple[str, str, str]]:
 
 
 def save_regional_replaces(filepath: str):
-    """按 config 分组保存地区用语替换日志到 JSON 文件"""
     by_config = {}
     for src, dst, cfg in _regional_collector:
         if cfg not in by_config:
@@ -228,20 +227,51 @@ def save_regional_replaces(filepath: str):
         else:
             by_config[cfg]["字数不等"][src] = dst
 
-    # 每个 config 查对应的多字映射
     for cfg in by_config:
         char_dict_name = CONFIG_TO_CHAR_DICT.get(cfg, 'STCharacters')
         char_map = MULTI_CHAR_DICT.get(char_dict_name, {})
+
         multi = {}
         all_keys = set(list(by_config[cfg]["字数相等"].keys()) + list(by_config[cfg]["字数不等"].keys()))
-        for src in all_keys:
-            for ch in src:
-                if ch in char_map and ch not in multi:
-                    multi[ch] = char_map[ch]
+        for word in all_keys:
+            converted = by_config[cfg]["字数相等"].get(word) or by_config[cfg]["字数不等"].get(word)
+            if not converted:
+                continue
+
+            parts = []
+            has_multi = False
+            for ch in word:
+                if ch in char_map:
+                    parts.append(f"【{'/'.join(char_map[ch])}】")
+                    has_multi = True
+                else:
+                    parts.append(ch)
+            if has_multi:
+                multi[word] = f"{converted} → {''.join(parts)}"
+
         by_config[cfg]["多字对应"] = multi
 
+    # 手动格式化：内层数组不换行
+    lines = ["{"]
+    configs = sorted(by_config.keys())
+    for ci, cfg in enumerate(configs):
+        data = by_config[cfg]
+        lines.append(f'    "{cfg}": {{')
+        for key in ["字数相等", "字数不等", "多字对应"]:
+            d = data[key]
+            items = [f'"{k}": {json.dumps(v, ensure_ascii=False)}' for k, v in sorted(d.items())]
+            comma = "," if key != "多字对应" else ""
+            lines.append(f'        "{key}": {{')
+            for ji, item in enumerate(items):
+                end = "," if ji < len(items) - 1 else ""
+                lines.append(f'            {item}{end}')
+            lines.append(f'        }}{comma}')
+        end = "," if ci < len(configs) - 1 else ""
+        lines.append(f'    }}{end}')
+    lines.append("}")
+
     with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(by_config, f, ensure_ascii=False, indent=2)
+        f.write("\n".join(lines) + "\n")
 
     total = sum(len(v["字数相等"]) + len(v["字数不等"]) for v in by_config.values())
     print(f"地区用语替换日志已保存: {filepath}")
