@@ -45,6 +45,7 @@ set(
 set(
   LIBOPENCC_PRIVATE_HEADERS
   ConfigBasedConverter.hpp
+  ConversionAmbiguities.hpp
   ConversionCandidates.hpp
   DictConverter.hpp
   PhraseExtract.hpp
@@ -60,6 +61,7 @@ set(
   LIBOPENCC_SOURCES
   Config.cpp
   Conversion.cpp
+  ConversionAmbiguities.cpp
   ConversionCandidates.cpp
   ConversionChain.cpp
   Converter.cpp
@@ -88,6 +90,7 @@ set(
 
 set(UNITTESTS
   ConfigTest
+  ConversionAmbiguitiesTest
   ConversionCandidatesTest
   ConversionChainTest
   ConversionInspectionTest
