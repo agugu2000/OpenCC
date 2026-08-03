@@ -148,6 +148,51 @@ OPENCC_EXPORT void opencc_convert_utf8_free(char* str);
  */
 OPENCC_EXPORT const char* opencc_error(void);
 
+// ========== OPENCC_MOD: multi char dict (start) ==========
+/**
+ * Queries multi-character mappings for a given character in the specified config.
+ * Returns space-separated variant forms, or "[]" if not found.
+ * The returned pointer is statically allocated and must NOT be freed.
+ *
+ * @param config  The config name (e.g., "s2t", "t2s").
+ * @param text    A null-terminated UTF-8 string containing a single character.
+ * @return        Space-separated variant forms, or "[]".
+ * @ingroup opencc_c_api
+ */
+OPENCC_EXPORT const char* opencc_get_multi_chars(const char* config, const char* text);
+// ========== OPENCC_MOD: multi char dict (end) ==========
+
+/**
+ * Makes an instance of opencc with full options.
+ *
+ * @param configFileName Location of configuration file.
+ *                       If NULL, s2t.json will be loaded.
+ * @param includeTofuRiskDictionaries Pass 1 to include tofu-risk dictionaries,
+ *                                    or 0 to skip them.
+ * @param resourceZipPath Path to a resource zip file, or NULL to use the
+ *                        filesystem resource provider.
+ * @return A description pointer of the newly allocated instance, or
+ *         (opencc_t)-1 on error.
+ */
+OPENCC_EXPORT opencc_t opencc_open_with_zip(const char* configFileName,
+                                   int includeTofuRiskDictionaries,
+                                   const char* resourceZipPath);
+
+/**
+ * Inspects the conversion process and returns a JSON string.
+ * You MUST call opencc_convert_utf8_free() to release the returned string.
+ *
+ * @param opencc The opencc description pointer.
+ * @param input  The UTF-8 encoded string.
+ * @param length The maximum length in byte to convert. If (size_t)-1,
+ *               the whole string (terminated by '\0') will be converted.
+ * @return       The newly allocated UTF-8 string containing inspection JSON,
+ *               or NULL on error.
+ */
+OPENCC_EXPORT char* opencc_inspect_utf8(opencc_t opencc,
+                                        const char* input,
+                                        size_t length);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

@@ -17,14 +17,29 @@
  */
 
 #include "Config.hpp"
+#include "ConversionInspection.hpp"
 #include "ResourceProvider.hpp"
 #include "opencc.h"
 #include <memory>
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 
 namespace py = pybind11;
 
 PYBIND11_MODULE(opencc_clib, m) {
+  py::class_<opencc::ConversionInspectionStage>(m, "ConversionInspectionStage")
+      .def(py::init<>())
+      .def_readwrite("index", &opencc::ConversionInspectionStage::index)
+      .def_readwrite("segments", &opencc::ConversionInspectionStage::segments);
+
+  py::class_<opencc::ConversionInspectionResult>(m, "ConversionInspectionResult")
+      .def(py::init<>())
+      .def_readwrite("input", &opencc::ConversionInspectionResult::input)
+      .def_readwrite("segments", &opencc::ConversionInspectionResult::segments)
+      .def_readwrite("stages", &opencc::ConversionInspectionResult::stages)
+      .def_readwrite("pipelineStages", &opencc::ConversionInspectionResult::pipelineStages)
+      .def_readwrite("output", &opencc::ConversionInspectionResult::output);
+
   py::class_<opencc::SimpleConverter>(m, "_OpenCC")
       .def(py::init([](const std::string& configFileName,
                        bool includeTofuRiskDictionaries,
@@ -44,7 +59,8 @@ PYBIND11_MODULE(opencc_clib, m) {
            py::arg("include_tofu_risk_dictionaries") = true,
            py::arg("resource_zip") = py::none())
       .def("convert", py::overload_cast<const char*, size_t>(
-                          &opencc::SimpleConverter::Convert, py::const_));
+                          &opencc::SimpleConverter::Convert, py::const_))
+      .def("inspect", &opencc::SimpleConverter::Inspect);
 
 #ifdef OPENCC_VERSION
   m.attr("__version__") = OPENCC_VERSION;

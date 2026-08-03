@@ -29,17 +29,39 @@ struct HMMModel {
     emitProbVec.push_back(&emitProbS);
     LoadModel(modelPath);
   }
+  // ========== OPENCC_MOD: 内存版 HMMModel (start) ==========
+  HMMModel(const char* modelData, size_t modelSize) {
+    memset(startProb, 0, sizeof(startProb));
+    memset(transProb, 0, sizeof(transProb));
+    statMap[0] = 'B';
+    statMap[1] = 'E';
+    statMap[2] = 'M';
+    statMap[3] = 'S';
+    emitProbVec.push_back(&emitProbB);
+    emitProbVec.push_back(&emitProbE);
+    emitProbVec.push_back(&emitProbM);
+    emitProbVec.push_back(&emitProbS);
+    LoadModelFromBuffer(modelData, modelSize);
+  }
+  // ========== OPENCC_MOD: end ==========
   ~HMMModel() {
   }
   void LoadModel(const string& filePath) {
     ifstream ifile;
     OpenInputFile(ifile, filePath);
     XCHECK(ifile.is_open()) << "open " << filePath << " failed";
+    LoadModelFromStream(ifile);
+  }
+  void LoadModelFromBuffer(const char* data, size_t size) {
+    istringstream iss(string(data, size));
+    LoadModelFromStream(iss);
+  }
+  void LoadModelFromStream(istream& is) {
     string line;
     vector<string> tmp;
     vector<string> tmp2;
     //Load startProb
-    XCHECK(GetLine(ifile, line));
+    XCHECK(GetLine(is, line));
     Split(line, tmp, " ");
     XCHECK(tmp.size() == STATUS_SUM);
     for (size_t j = 0; j< tmp.size(); j++) {
@@ -48,7 +70,7 @@ struct HMMModel {
 
     //Load transProb
     for (size_t i = 0; i < STATUS_SUM; i++) {
-      XCHECK(GetLine(ifile, line));
+      XCHECK(GetLine(is, line));
       Split(line, tmp, " ");
       XCHECK(tmp.size() == STATUS_SUM);
       for (size_t j =0; j < STATUS_SUM; j++) {
@@ -57,22 +79,22 @@ struct HMMModel {
     }
 
     //Load emitProbB
-    XCHECK(GetLine(ifile, line));
+    XCHECK(GetLine(is, line));
     XCHECK(LoadEmitProb(line, emitProbB));
 
     //Load emitProbE
-    XCHECK(GetLine(ifile, line));
+    XCHECK(GetLine(is, line));
     XCHECK(LoadEmitProb(line, emitProbE));
 
     //Load emitProbM
-    XCHECK(GetLine(ifile, line));
+    XCHECK(GetLine(is, line));
     XCHECK(LoadEmitProb(line, emitProbM));
 
     //Load emitProbS
-    XCHECK(GetLine(ifile, line));
+    XCHECK(GetLine(is, line));
     XCHECK(LoadEmitProb(line, emitProbS));
   }
-  double GetEmitProb(const EmitProbMap* ptMp, Rune key, 
+  double GetEmitProb(const EmitProbMap* ptMp, Rune key,
         double defVal)const {
     EmitProbMap::const_iterator cit = ptMp->find(key);
     if (cit == ptMp->end()) {
@@ -80,8 +102,8 @@ struct HMMModel {
     }
     return cit->second;
   }
-  bool GetLine(ifstream& ifile, string& line) {
-    while (getline(ifile, line)) {
+  bool GetLine(istream& is, string& line) {
+    while (getline(is, line)) {
       Trim(line);
       if (line.empty()) {
         continue;

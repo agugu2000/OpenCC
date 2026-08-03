@@ -19,6 +19,7 @@
 #pragma once
 
 #include "Common.hpp"
+#include "ResourceProvider.hpp"
 #include "Segmentation.hpp"
 
 namespace cppjieba {
@@ -36,7 +37,14 @@ public:
                     const std::string& userDictPath = "",
                     const std::string& idfPath = "",
                     const std::string& stopWordsPath = "");
-
+  // ========== OPENCC_MOD: 重载JiebaSegmentation (start) ==========
+  JiebaSegmentation(std::shared_ptr<ResourceProvider> provider,
+                    const std::string& dictPath,
+                    const std::string& modelPath,
+                    const std::string& userDictPath = "",
+                    const std::string& idfPath = "",
+                    const std::string& stopWordsPath = "");
+  // ========== OPENCC_MOD: end ==========
   ~JiebaSegmentation() override;
 
   SegmentsPtr Segment(std::string_view text) const override;

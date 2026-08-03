@@ -87,6 +87,7 @@ set(
   TextDict.cpp
   UTF8StringSlice.cpp
   UTF8Util.cpp
+  ${PROJECT_SOURCE_DIR}/plugins/jieba/src/JiebaSegmentation.cpp
 )
 
 set(UNITTESTS
@@ -110,6 +111,9 @@ set(UNITTESTS
 )
 
 include_directories(SYSTEM ../deps/darts-clone-0.32h/include)
+include_directories("${PROJECT_SOURCE_DIR}/plugins/jieba/include")
+include_directories("${PROJECT_SOURCE_DIR}/plugins/jieba/deps/cppjieba/include")
+
 set(
   LIBOPENCC_PRIVATE_HEADERS
   ${LIBOPENCC_PRIVATE_HEADERS}
@@ -147,6 +151,13 @@ add_library(libopencc
   ${LIBOPENCC_HEADERS}
   ${LIBOPENCC_PRIVATE_HEADERS}
 )
+# ========== OPENCC_MOD: embedded assets (start) ==========
+if(OPENCC_EMBED_ASSETS)
+  target_include_directories(libopencc PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/../data"
+  )
+endif()
+# ========== OPENCC_MOD: embedded assets (end) ==========
 add_library(OpenCC::OpenCC ALIAS libopencc)
 set_target_properties(libopencc PROPERTIES POSITION_INDEPENDENT_CODE ON)
 source_group(libopencc FILES
@@ -154,7 +165,7 @@ source_group(libopencc FILES
   ${LIBOPENCC_HEADERS}
   ${LIBOPENCC_PRIVATE_HEADERS}
 )
-target_link_libraries(libopencc marisa)
+target_link_libraries(libopencc marisa zlibstatic)
 if (NOT BUILD_SHARED_LIBS)
   target_compile_definitions(libopencc PUBLIC Opencc_BUILT_AS_STATIC)
 endif()

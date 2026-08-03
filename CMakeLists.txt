@@ -18,6 +18,7 @@
 
 ######## Project settings
 cmake_minimum_required(VERSION 3.12)
+cmake_policy(SET CMP0091 NEW)
 set (PACKAGE_NAME opencc)
 project (${PACKAGE_NAME} CXX)
 include (CTest)
@@ -63,6 +64,7 @@ else()
 endif()
 option(BUILD_OPENCC_JIEBA_PLUGIN "Build Jieba segmentation as a loadable plugin." ${OPENCC_JIEBA_PLUGIN_DEFAULT})
 option(BUILD_PYTHON "Build python library" OFF)
+option(OPENCC_EMBED_ASSETS "Embed data files into the library binary" OFF)
 
 # Built-in dictionaries and configs can be produced as compiled ocd2
 # (marisa-trie, default) or legacy ocd (Darts) dictionaries, or as plain text
@@ -363,7 +365,9 @@ else()
 endif()
 
 ######## Subdirectories
-
+set(ZLIB_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(ZLIB_BUILD_STATIC ON CACHE BOOL "" FORCE)
+add_subdirectory(deps/zlib-1.3.2)
 add_subdirectory(src)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/doc/CMakeLists.txt")
   add_subdirectory(doc)

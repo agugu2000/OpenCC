@@ -1,0 +1,30 @@
+{
+  "name": "Chinese Characters to Pinyin without Tone",
+  "normalization": [
+    { "dict": { "type": "ocd2", "file": "CJK_Compatibility_Ideographs.ocd2" } }
+  ],
+  "segmentation": {
+    "type": "mmseg",
+    "dict": {
+      "type": "group",
+      "match_policy": "union",
+      "dicts": [
+        { "type": "ocd2", "file": "phrase_notone.ocd2" },
+        { "type": "ocd2", "file": "STPhrases.ocd2" },
+        { "type": "ocd2", "file": "STPhrases_GeneratedFromRegionalPhrases.ocd2" }
+      ]
+    }
+  },
+  "conversion_chain": [
+    {
+      "dict": {
+        "type": "group",
+        "match_policy": "short_circuit",
+        "dicts": [
+          { "type": "ocd2", "file": "phrase_notone.ocd2" },
+          { "type": "ocd2", "file": "pinyin_notone.ocd2" }
+        ]
+      }
+    }
+  ]
+}

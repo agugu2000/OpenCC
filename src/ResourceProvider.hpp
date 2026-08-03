@@ -23,6 +23,7 @@
 #include <memory>
 #include <vector>
 
+#include "Exception.hpp"
 #include "Export.hpp"
 
 namespace opencc {
@@ -68,6 +69,9 @@ private:
 class OPENCC_EXPORT ZipResourceProvider : public ResourceProvider {
 public:
   explicit ZipResourceProvider(std::string zipFileName);
+  // ========== OPENCC_MOD: embedded zip (start) ==========
+  ZipResourceProvider(const unsigned char* zipData, size_t zipSize);
+  // ========== OPENCC_MOD: embedded zip (end) ==========
   ~ZipResourceProvider();
 
   ZipResourceProvider(const ZipResourceProvider&) = delete;
@@ -82,5 +86,33 @@ private:
   struct Internal;
   std::unique_ptr<Internal> internal;
 };
+
+// ========== OPENCC_MOD: embedded assets fallback (start) ==========
+class OPENCC_EXPORT ChainedResourceProvider : public ResourceProvider {
+public:
+  void AddProvider(std::shared_ptr<ResourceProvider> provider) {
+    providers_.push_back(std::move(provider));
+  }
+
+  std::string Resolve(std::string_view resourceName) const override {
+    for (const auto& p : providers_) {
+      try { return p->Resolve(resourceName); }
+      catch (FileNotFound&) { continue; }
+    }
+    throw FileNotFound(std::string(resourceName));
+  }
+
+  std::shared_ptr<const Resource> GetResource(std::string_view resourceName) const override {
+    for (const auto& p : providers_) {
+      try { return p->GetResource(resourceName); }
+      catch (FileNotFound&) { continue; }
+    }
+    throw FileNotFound(std::string(resourceName));
+  }
+
+private:
+  std::vector<std::shared_ptr<ResourceProvider>> providers_;
+};
+// ========== OPENCC_MOD: embedded assets fallback (end) ==========
 
 } // namespace opencc

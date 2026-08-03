@@ -23,6 +23,7 @@
 #include <unordered_map>
 #include <sstream>
 #include <sys/stat.h>
+#include <zlib.h>
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
@@ -255,12 +256,23 @@ public:
 #endif
   }
 
+  // ========== OPENCC_MOD: embedded zip (start) ==========
+  MappedZipArchive(const unsigned char* zipData, size_t zipSize)
+      : fileName("__embedded__"),
+        data(zipData),
+        size(zipSize),
+        cacheKey("embedded:"),
+        isEmbedded(true) {}
+  // ========== OPENCC_MOD: embedded zip (end) ==========
+
   MappedZipArchive(const MappedZipArchive&) = delete;
   MappedZipArchive& operator=(const MappedZipArchive&) = delete;
 
   ~MappedZipArchive() {
 #if !defined(_WIN32) && !defined(_WIN64)
-    if (data != nullptr) {
+    // ========== OPENCC_MOD: embedded zip (start) ==========
+    if (!isEmbedded && data != nullptr) {
+    // ========== OPENCC_MOD: embedded zip (end) ==========
       munmap(const_cast<unsigned char*>(data), size);
     }
     if (fd >= 0) {
@@ -280,6 +292,9 @@ private:
 #else
   int fd = -1;
 #endif
+  // ========== OPENCC_MOD: embedded zip (start) ==========
+  bool isEmbedded = false;
+  // ========== OPENCC_MOD: embedded zip (end) ==========
 };
 
 } // namespace
@@ -289,6 +304,12 @@ struct ZipResourceProvider::Internal {
       : archive(std::make_shared<MappedZipArchive>(zipFileName_)) {
     Index();
   }
+  // ========== OPENCC_MOD: embedded zip (start) ==========
+  explicit Internal(std::shared_ptr<MappedZipArchive> archive_)
+      : archive(std::move(archive_)) {
+    Index();
+  }
+  // ========== OPENCC_MOD: embedded zip (end) ==========
 
   void Index();
 
@@ -441,6 +462,13 @@ FilesystemResourceProvider::Resolve(std::string_view resourceName) const {
 ZipResourceProvider::ZipResourceProvider(std::string zipFileName)
     : internal(new Internal(zipFileName)) {}
 
+// ========== OPENCC_MOD: embedded zip (start) ==========
+ZipResourceProvider::ZipResourceProvider(const unsigned char* zipData, size_t zipSize) {
+  auto archive = std::make_shared<MappedZipArchive>(zipData, zipSize);
+  internal = std::unique_ptr<Internal>(new Internal(std::move(archive)));
+}
+// ========== OPENCC_MOD: embedded zip (end) ==========
+
 ZipResourceProvider::~ZipResourceProvider() = default;
 
 std::string ZipResourceProvider::Resolve(std::string_view resourceName) const {
@@ -468,23 +496,56 @@ ZipResourceProvider::GetResource(std::string_view resourceName) const {
   if (entry == internal->entries.end()) {
     throw FileNotFound(normalized);
   }
-  if (entry->second.method != 0) {
+  if (entry->second.method != 0 && entry->second.method != 8) {
     throw InvalidFormat("Unsupported zip compression method for " + entry->first);
   }
-  if (entry->second.compressedSize != entry->second.uncompressedSize) {
-    throw InvalidFormat("Invalid stored zip entry size for " + entry->first);
+
+  const char* zipData = reinterpret_cast<const char*>(
+      internal->archive->data + entry->second.dataOffset);
+
+  if (entry->second.method == 0) {
+    // store 模式
+    if (entry->second.compressedSize != entry->second.uncompressedSize) {
+      throw InvalidFormat("Invalid stored zip entry size for " + entry->first);
+    }
+    std::string cacheKey = internal->archive->cacheKey;
+    cacheKey.push_back('\n');
+    cacheKey.append(entry->first);
+    cacheKey.push_back('\n');
+    cacheKey.append(std::to_string(entry->second.uncompressedSize));
+    return std::make_shared<ResourceProvider::Resource>(
+        entry->first, zipData, entry->second.uncompressedSize,
+        internal->archive, cacheKey);
   }
 
-  const char* data = reinterpret_cast<const char*>(
-      internal->archive->data + entry->second.dataOffset);
+  // method == 8: deflate 解压
+  std::shared_ptr<std::vector<char>> decompressed =
+      std::make_shared<std::vector<char>>(entry->second.uncompressedSize);
+
+  z_stream strm = {};
+  strm.next_in = (Bytef*)zipData;
+  strm.avail_in = entry->second.compressedSize;
+  strm.next_out = reinterpret_cast<Bytef*>(decompressed->data());
+  strm.avail_out = entry->second.uncompressedSize;
+
+  int ret = inflateInit2(&strm, -MAX_WBITS);
+  if (ret != Z_OK) {
+    throw InvalidFormat("Failed to init inflate for: " + entry->first);
+  }
+  ret = inflate(&strm, Z_FINISH);
+  inflateEnd(&strm);
+  if (ret != Z_STREAM_END) {
+    throw InvalidFormat("Failed to decompress zip entry: " + entry->first);
+  }
+
   std::string cacheKey = internal->archive->cacheKey;
   cacheKey.push_back('\n');
   cacheKey.append(entry->first);
   cacheKey.push_back('\n');
   cacheKey.append(std::to_string(entry->second.uncompressedSize));
   return std::make_shared<ResourceProvider::Resource>(
-      entry->first, data, entry->second.uncompressedSize, internal->archive,
-      cacheKey);
+      entry->first, decompressed->data(), entry->second.uncompressedSize,
+      decompressed, cacheKey);
 }
 
 } // namespace opencc
