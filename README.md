@@ -18,21 +18,29 @@
 
 ![OpenCC](https://opencc.byvoid.com/img/opencc.png)
 
-Open Chinese Convert (OpenCC, 開放中文轉換) is an open source project for high-quality conversion between Traditional Chinese, Simplified Chinese, Japanese Kanji (Shinjitai), character variants, and regional wording across Mainland China, Taiwan, and Hong Kong. It provides conversion dictionaries, a reusable library, command-line utilities, and dictionary generation tools. OpenCC performs orthographic conversion rather than language translation (for example, between Mandarin and Cantonese).
+Open Chinese Convert (OpenCC, 開放中文轉換) is an open source project for high-quality conversion between Traditional Chinese, Simplified Chinese, Japanese Shinjitai, and regional wording across Mainland China, Taiwan, and Hong Kong. It provides dictionaries, a reusable library, conversion tools, and dictionary generation tools.
 
-Open Chinese Convert（OpenCC，開放中文轉換） 是一個開源中文轉換項目，支援繁體中文、簡體中文、日本新字體（新字体）、異體字，以及中國大陸、臺灣、香港等地區習慣用詞之間的高品質轉換，並提供轉換詞典、可重用函式庫、命令列工具及詞典生成工具。OpenCC 提供的是文字轉換，而非語言翻譯（例如普通話與粵語之間的翻譯）。
+Open Chinese Convert（OpenCC，開放中文轉換） 是一個開源中文轉換項目，支持繁體中文、簡體中文、日文新字體，以及中國大陸、臺灣、香港等地區習慣用詞之間的高品質轉換，並提供詞典、可重用庫、轉換工具及詞典生成工具。
 
-Discussion (Telegram): https://t.me/open_chinese_convert
+Discussion (Telegram) 討論區（Telegram）: https://t.me/open_chinese_convert
 
 ### Features 特點
 
-* 嚴格區分「一簡對多繁」和「一簡對多異」。
-* 完全兼容異體字，可以實現動態替換。
-* 嚴格審校一簡對多繁詞條，原則爲「能分則不合」。
-* 支持中國大陸、台灣、香港異體字和地區習慣用詞轉換，如「裏」「裡」、「鼠標」「滑鼠」。
-* 詞庫和函數庫完全分離，可以自由修改、導入、擴展。
+* 基於詞庫的確定性轉換，不使用大語言模型，結果穩定可預期，可離線快速運行。
+  Deterministic, dictionary-based conversion without large language models (LLMs): results are stable and predictable, and conversion runs fast and fully offline.
+* 詞庫和函數庫可分離，允許自定義修改和擴展。
+  Dictionaries are decoupled from the library, allowing custom modification and extension.
+* 嚴格區分簡繁對應與異體字對應關係，嚴格審校一簡對多繁詞條，OpenCC標準的用字原則爲「能分則不合」。
+  Strictly distinguishes Simplified-Traditional mappings from character variant mappings, with rigorously reviewed one-to-many Simplified-to-Traditional entries; the OpenCC standard follows the character usage principle of "separate whenever distinguishable".
+* 支持中國大陸、臺灣、香港地區慣用異體字（如「裏」「裡」），以及習慣用詞轉換（如「鼠標」「滑鼠」）。
+  Supports conversion of preferred character variants (such as 「裏」/「裡」) and regional wording (such as 「鼠標」/「滑鼠」) for Mainland China, Taiwan, and Hong Kong.
+* 詞庫內容均以官話（普通話、國語）詞彙爲基準，不支持語言之間的翻譯，例如官話與粵語、閩南語或日語之間的翻譯。
+  Dictionaries are based on Mandarin (Putonghua / Guoyu) vocabulary; translation between languages, such as between Mandarin and Cantonese, Southern Min, or Japanese, is not supported.
+* 另外，有限支持日文新字體與舊字體之間的轉換。
+  In addition, conversion between Japanese Shinjitai (new character forms) and Kyujitai (old character forms) is supported to a limited extent.
 
-詳情參閱[OpenCC 設計思想](./DESIGN_PRINCIPLES.md)及[地區詞收錄標準](doc/regional-phrase-criteria.md)。
+詳情參閱 [OpenCC 設計思想](./DESIGN_PRINCIPLES.md)及[地區詞收錄標準](doc/regional-phrase-criteria.md)。
+For details, see [Design Principles](./DESIGN_PRINCIPLES.md) and [Regional Phrase Criteria](doc/regional-phrase-criteria.md).
 
 ## Installation 安裝
 
@@ -43,29 +51,31 @@ Discussion (Telegram): https://t.me/open_chinese_convert
 * [Fedora](https://packages.fedoraproject.org/pkgs/opencc/opencc/)
 * [Arch Linux](https://archlinux.org/packages/extra/x86_64/opencc/)
 * [macOS (Homebrew)](https://formulae.brew.sh/formula/opencc)
-    * 使用 `brew install opencc` 命令可安裝命令行工具；formula 更新至 1.4.1 後將包含 Jieba 分詞插件
+    * 使用 `brew install opencc`
 * [WinGet](https://github.com/microsoft/winget-pkgs/tree/master/manifests/b/BYVoid/OpenCC)
-    * 使用 `winget install opencc` 命令可直接安裝 opencc.exe 應用程式，含 Jieba 分詞插件
+    * 使用 `winget install opencc`
 * [Bazel](https://registry.bazel.build/modules/opencc)
 * [Node.js](https://npmjs.org/package/opencc)
     * 使用 `npm install -g opencc` 命令可安裝 OpenCC Node.js CLI
     * 使用 `npm install -g opencc opencc-jieba` 命令可同時安裝 OpenCC Node.js CLI 及 Jieba 分詞插件
 * [Python](https://pypi.org/project/OpenCC/)
     * 使用 `pip install opencc` 命令可安裝 Python API 及 Python CLI
-* [More (Repology)](https://repology.org/project/opencc/versions)
+* [Repology](https://repology.org/project/opencc/versions)
 
 ### Prebuilt binaries 預編譯二進位檔
 
-OpenCC 1.4.1 修復 `opencc` npm 套件在無預編譯二進制平台上源碼編譯安裝失敗的
-問題，並包含一批詞庫修正；C++ ABI 與 1.4.0 相同（SOVERSION 1.4），自 1.4.0
-升級的下游 C++ 程式無需重新連結。
+OpenCC 1.4.2 大幅加速了轉換熱路徑（純文字語料的整體轉換時間最多降至原本的
+1/7），修復了大端序平台載入 legacy `.ocd` 字典得到空字典的問題，並包含一批詞庫
+修正；C++ ABI 與 1.4.1 相同（SOVERSION 1.4），自 1.4.0／1.4.1 升級的下游 C++
+程式無需重新連結。
 
-* Windows (x86_64): [OpenCC-1.4.1](https://github.com/BYVoid/OpenCC/releases/download/ver.1.4.1/OpenCC-1.4.1-windows-x64-portable.zip) ([SHA-256](https://github.com/BYVoid/OpenCC/releases/download/ver.1.4.1/OpenCC-1.4.1-windows-x64-portable.zip.sha256))
+* Windows (x86_64): [OpenCC-1.4.2](https://github.com/BYVoid/OpenCC/releases/download/ver.1.4.2/OpenCC-1.4.2-windows-x64-portable.zip) ([SHA-256](https://github.com/BYVoid/OpenCC/releases/download/ver.1.4.2/OpenCC-1.4.2-windows-x64-portable.zip.sha256))
     * This Windows release is available from WinGet. For details, see [doc/windows-winget-release.md](doc/windows-winget-release.md).
+    * The executables are Authenticode-signed; see [Code Signing 程式碼簽章](#code-signing-程式碼簽章).
     * Requires Microsoft Visual C++ Redistributable for Visual Studio 2015-2026. Download the latest version from [Microsoft](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170#latest-supported-redistributable-version).
 * Debian/Ubuntu:
-    * [opencc-1.4.1-1-deb-amd64.zip](https://github.com/BYVoid/OpenCC/releases/download/ver.1.4.1/opencc-1.4.1-1-deb-amd64.zip)
-    * [opencc-1.4.1-1-deb-arm64.zip](https://github.com/BYVoid/OpenCC/releases/download/ver.1.4.1/opencc-1.4.1-1-deb-arm64.zip)
+    * [opencc-1.4.2-1-deb-amd64.zip](https://github.com/BYVoid/OpenCC/releases/download/ver.1.4.2/opencc-1.4.2-1-deb-amd64.zip)
+    * [opencc-1.4.2-1-deb-arm64.zip](https://github.com/BYVoid/OpenCC/releases/download/ver.1.4.2/opencc-1.4.2-1-deb-arm64.zip)
     * Each zip bundles the `opencc`, `opencc-jieba`, and `libopencc*` deb packages for one architecture, with a `SHA256SUMS` file.
 
 ## Usage 使用
@@ -282,7 +292,7 @@ The following ports are maintained within the OpenCC ecosystem and are generally
 
 * Data package: [opencc-data](https://www.npmjs.com/package/opencc-data)
 * Pure JavaScript: [opencc-js](https://www.npmjs.com/package/opencc-js)
-    * See [notes about different OpenCC NPM packages](#links-%E7%9B%B8%E9%97%9C%E9%8F%88%E6%8E%A5) below.
+    * See [notes about different OpenCC NPM packages](#links-%E7%9B%B8%E9%97%9C%E9%80%A3%E7%B5%90) below.
 * WebAssembly: [opencc-wasm](https://www.npmjs.com/package/opencc-wasm) ([website](https://opencc.js.org/))
 * Pure Python: [opencc-py](https://pypi.org/project/opencc-py/) (pre-release)
 
@@ -504,6 +514,33 @@ Apache License 2.0
 * [cppjieba](https://github.com/yanyiwu/cppjieba) MIT License
   - Optional dependency used by the experimental `opencc-jieba` plugin.
   - 試驗性 `opencc-jieba` 插件使用的可選依賴。
+
+## Code Signing 程式碼簽章
+
+自 1.4.2 起，Windows 發佈的二進位檔（可攜式 CLI 壓縮包中的執行檔，以及 npm
+win32-x64 套件中的 `opencc.node` 與 `opencc-jieba.dll`）皆經過 Authenticode
+簽章。
+
+Since 1.4.2, the Windows binaries — the executables in the portable CLI zip
+and the `opencc.node` / `opencc-jieba.dll` shipped in the win32-x64 npm
+packages — are Authenticode-signed.
+
+This program uses free code signing provided by
+[SignPath.io](https://about.signpath.io/), and a free code signing
+certificate by the [SignPath Foundation](https://signpath.org/).
+
+本項目使用 [SignPath.io](https://about.signpath.io/) 免費提供的程式碼簽章服務，
+憑證由 [SignPath Foundation](https://signpath.org/) 免費提供。
+
+* **Code signing policy 簽章政策**：只有合併進 `master` 的提交會被簽章，簽章請求
+  由 [維護者](#contributors-貢獻者)在發佈流程中透過 GitHub Actions 發起
+  （見 [`release-winget.yml`](.github/workflows/release-winget.yml) 與
+  [`release-npm-binaries.yml`](.github/workflows/release-npm-binaries.yml)）。
+* **Privacy policy 隱私政策**：OpenCC 為離線的文字轉換程式庫與命令列工具，除非
+  使用者、安裝者或操作者明確要求，否則不會將任何資訊傳輸至其他網路系統。
+  This program will not transfer any information to other networked systems
+  unless specifically requested by the user or the person installing or
+  operating it.
 
 ## Change History 版本歷史
 
