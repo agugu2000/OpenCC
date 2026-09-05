@@ -306,7 +306,9 @@ class DictTrie {
     return entry;
   }
 
-  // ========== OPENCC_MOD: 内存文本词典加载 ==========
+  // ========== OPENCC_MOD: 内存文本词典加载 (start) ==========
+  // 注意：此函数保留在 header 中是因为 cppjieba 为 header-only 库。
+  // 未来合并上游 cppjieba 时需要手动合并此函数。
   static PrecomputedDict BuildPrecomputedDictFromBuffer(const char* data, size_t size) {
     std::istringstream iss(std::string(data, size));
     std::string line;
@@ -335,7 +337,7 @@ class DictTrie {
     precomputed.node_infos = node_infos;
     return precomputed;
   }
-  // ==================================================
+  // ========== OPENCC_MOD: 内存文本词典加载 (end) ==========
 
   static const DictCacheEntry& GetDictCache(const std::string& filePath) {
     static std::unordered_map<std::string, DictCacheEntry> cache;

@@ -19,23 +19,38 @@ class KeywordExtractor {
     double weight;
   }; // struct Word
 
-  KeywordExtractor(const std::string& dictPath, 
-        const std::string& hmmFilePath, 
-        const std::string& idfPath, 
-        const std::string& stopWordPath, 
-        const std::string& userDict = "") 
-    : segment_(dictPath, hmmFilePath, userDict) {
+  KeywordExtractor(const std::string& dictPath,
+        const std::string& hmmFilePath,
+        const std::string& idfPath,
+        const std::string& stopWordPath,
+        const std::string& userDict = "")
+    : segment_(dictPath, hmmFilePath, userDict),
+      idfAverage_(0.0) {
     LoadIdfDict(idfPath);
     LoadStopWordDict(stopWordPath);
   }
-  KeywordExtractor(const DictTrie* dictTrie, 
+  KeywordExtractor(const DictTrie* dictTrie,
         const HMMModel* model,
-        const std::string& idfPath, 
-        const std::string& stopWordPath) 
-    : segment_(dictTrie, model) {
+        const std::string& idfPath,
+        const std::string& stopWordPath)
+    : segment_(dictTrie, model),
+      idfAverage_(0.0) {
     LoadIdfDict(idfPath);
     LoadStopWordDict(stopWordPath);
   }
+  // ========== OPENCC_MOD: 内存版 KeywordExtractor (start) ==========
+  KeywordExtractor(const DictTrie* dictTrie,
+        const HMMModel* model,
+        const char* idfData,
+        size_t idfSize,
+        const char* stopWordData,
+        size_t stopWordSize)
+    : segment_(dictTrie, model),
+      idfAverage_(0.0) {
+    LoadIdfDictFromBuffer(idfData, idfSize);
+    LoadStopWordDictFromBuffer(stopWordData, stopWordSize);
+  }
+  // ========== OPENCC_MOD: end ==========
   ~KeywordExtractor() {
   }
 
@@ -56,6 +71,10 @@ class KeywordExtractor {
   }
 
   void Extract(const std::string& sentence, std::vector<Word>& keywords, size_t topN) const {
+    // ========== OPENCC_MOD: 空词典跳过关键词提取 (start) ==========
+    // idf 词典或停用词词典缺失时，关键词提取退化为基础分词统计。
+    // 分词功能不受影响，但关键词权重将不准确。
+    // ========== OPENCC_MOD: end ==========
     std::vector<std::string> words;
     segment_.Cut(sentence, words);
 
@@ -93,6 +112,11 @@ class KeywordExtractor {
   }
  private:
   void LoadIdfDict(const std::string& idfPath) {
+    // ========== OPENCC_MOD: 空路径跳过加载，关键词提取不可用但分词正常 (start) ==========
+    if (idfPath.empty()) {
+      return;
+    }
+    // ========== OPENCC_MOD: end ==========
     std::ifstream ifs;
     OpenInputFile(ifs, idfPath);
     XCHECK(ifs.is_open()) << "open " << idfPath << " failed";
@@ -118,11 +142,20 @@ class KeywordExtractor {
 
     }
 
-    assert(lineno);
+    // ========== OPENCC_MOD: 无有效条目时静默降级，不崩溃不除零 (start) ==========
+    if (lineno == 0) {
+      idfAverage_ = 0.0;
+      return;
+    }
+    // ========== OPENCC_MOD: end ==========
     idfAverage_ = idfSum / lineno;
-    assert(idfAverage_ > 0.0);
   }
   void LoadStopWordDict(const std::string& filePath) {
+    // ========== OPENCC_MOD: 空路径跳过加载，关键词提取不可用但分词正常 (start) ==========
+    if (filePath.empty()) {
+      return;
+    }
+    // ========== OPENCC_MOD: end ==========
     std::ifstream ifs;
     OpenInputFile(ifs, filePath);
     XCHECK(ifs.is_open()) << "open " << filePath << " failed";
@@ -130,8 +163,72 @@ class KeywordExtractor {
     while (getline(ifs, line)) {
       stopWords_.insert(line);
     }
-    assert(stopWords_.size());
+    // ========== OPENCC_MOD: 无有效条目时静默降级，不崩溃 (start) ==========
+    if (stopWords_.empty()) {
+      return;
+    }
+    // ========== OPENCC_MOD: end ==========
   }
+
+  // ========== OPENCC_MOD: 内存版 KeywordExtractor (start) ==========
+  void LoadIdfDictFromBuffer(const char* data, size_t size) {
+    // ========== OPENCC_MOD: 空 buffer 跳过加载，关键词提取不可用但分词正常 (start) ==========
+    if (data == nullptr || size == 0) {
+      return;
+    }
+    // ========== OPENCC_MOD: end ==========
+    std::string content(data, size);
+    std::istringstream iss(content);
+    std::string line;
+    std::vector<std::string> buf;
+    double idf = 0.0;
+    double idfSum = 0.0;
+    size_t lineno = 0;
+    for (; getline(iss, line); lineno++) {
+      buf.clear();
+      if (line.empty()) {
+        XLOG(ERROR) << "lineno: " << lineno << " empty. skipped.";
+        continue;
+      }
+      Split(line, buf, " ");
+      if (buf.size() != 2) {
+        XLOG(ERROR) << "line: " << line << ", lineno: " << lineno << " empty. skipped.";
+        continue;
+      }
+      idf = atof(buf[1].c_str());
+      idfMap_[buf[0]] = idf;
+      idfSum += idf;
+    }
+    // ========== OPENCC_MOD: 无有效条目时静默降级，不崩溃不除零 (start) ==========
+    if (lineno == 0) {
+      idfAverage_ = 0.0;
+      return;
+    }
+    // ========== OPENCC_MOD: end ==========
+    idfAverage_ = idfSum / lineno;
+  }
+
+  void LoadStopWordDictFromBuffer(const char* data, size_t size) {
+    // ========== OPENCC_MOD: 空 buffer 跳过加载，关键词提取不可用但分词正常 (start) ==========
+    if (data == nullptr || size == 0) {
+      return;
+    }
+    // ========== OPENCC_MOD: end ==========
+    std::string content(data, size);
+    std::istringstream iss(content);
+    std::string line;
+    while (getline(iss, line)) {
+      if (!line.empty()) {
+        stopWords_.insert(line);
+      }
+    }
+    // ========== OPENCC_MOD: 无有效条目时静默降级，不崩溃 (start) ==========
+    if (stopWords_.empty()) {
+      return;
+    }
+    // ========== OPENCC_MOD: end ==========
+  }
+  // ========== OPENCC_MOD: end ==========
 
   static bool Compare(const Word& lhs, const Word& rhs) {
     return lhs.weight > rhs.weight;
@@ -145,7 +242,7 @@ class KeywordExtractor {
 }; // class KeywordExtractor
 
 inline std::ostream& operator << (std::ostream& os, const KeywordExtractor::Word& word) {
-  return os << "{\"word\": \"" << word.word << "\", \"offset\": " << word.offsets << ", \"weight\": " << word.weight << "}"; 
+  return os << "{\"word\": \"" << word.word << "\", \"offset\": " << word.offsets << ", \"weight\": " << word.weight << "}";
 }
 
 } // namespace cppjieba

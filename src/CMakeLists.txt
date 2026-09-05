@@ -151,13 +151,11 @@ add_library(libopencc
   ${LIBOPENCC_HEADERS}
   ${LIBOPENCC_PRIVATE_HEADERS}
 )
-# ========== OPENCC_MOD: embedded assets (start) ==========
-if(OPENCC_EMBED_ASSETS)
-  target_include_directories(libopencc PRIVATE
-    "${CMAKE_CURRENT_BINARY_DIR}/../data"
-  )
-endif()
-# ========== OPENCC_MOD: embedded assets (end) ==========
+# ========== OPENCC_MOD: embedded assets include 路径 (start) ==========
+target_include_directories(libopencc PRIVATE
+  "${CMAKE_CURRENT_BINARY_DIR}/../data"
+)
+# ========== OPENCC_MOD: embedded assets include 路径 (end) ==========
 add_library(OpenCC::OpenCC ALIAS libopencc)
 set_target_properties(libopencc PROPERTIES POSITION_INDEPENDENT_CODE ON)
 source_group(libopencc FILES

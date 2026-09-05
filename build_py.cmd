@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 
-:: ==================== 0. 检测 7-Zip ====================
+:: ==================== pre0. 检测 7-Zip ====================
 set USE_7Z=0
 if exist "C:\Program Files\7-Zip\7z.exe" (
     set USE_7Z=1
@@ -14,7 +14,7 @@ if exist "C:\Program Files\7-Zip\7z.exe" (
     echo [提示] 未找到 7-Zip，将使用 Python 打包
 )
 
-:: ==================== 0.5. 参数处理 ====================
+:: ==================== pre1. 参数处理 ====================
 if "%~1"=="clean" (
     if exist "%~dp0build" rmdir /s /q "%~dp0build"
     echo 已清理 build 目录
@@ -39,10 +39,10 @@ if "%SRC_DIR:~-1%"=="\" set SRC_DIR=%SRC_DIR:~0,-1%
 set BUILD_DIR=%SRC_DIR%\build
 set OUT_DIR=%BUILD_DIR%\py_release
 
-:: ==================== 0.6. 清除上次的内嵌头文件 ====================
+:: ==================== pre2. 清除上次的内嵌头文件 ====================
 if exist "%BUILD_DIR%\data\generated_embedded.h" del /f /q "%BUILD_DIR%\data\generated_embedded.h"
 
-:: ==================== 0.7. 生成拼音词典 TXT ====================
+:: ==================== pre3. 生成拼音词典 TXT ====================
 echo.
 echo ===== 生成拼音词典 TXT =====
 set PINYIN_DIR=%BUILD_DIR%\data
@@ -174,6 +174,9 @@ echo 已生成 multi_char_dict.inc
 echo.
 echo ===== 第二阶段: 重新编译 OpenCC (嵌入数据) =====
 
+:: 强制重新编译
+del /s /q "%BUILD_DIR%\src\*.obj" >nul 2>&1
+
 cmake -S "%SRC_DIR%" -B "%BUILD_DIR%" !CMAKE_EXTRA! ^
     -DCMAKE_BUILD_TYPE=Release ^
     -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
@@ -203,6 +206,16 @@ goto :after_compile
 
 :: ==================== 无内嵌模式编译 ====================
 :compile_noembed
+echo.
+echo ===== 生成多音字映射头文件 =====
+python "%SRC_DIR%\python\opencc\build_multi_char_dict.py" "%SRC_DIR%\data\dictionary" "%BUILD_DIR%\data\multi_char_dict.inc"
+if errorlevel 1 (
+    echo 生成多音字映射失败！
+    pause
+    exit /b 1
+)
+echo 已生成 multi_char_dict.inc
+
 echo.
 echo ===== 编译 OpenCC (不含内嵌数据) =====
 
@@ -246,16 +259,6 @@ for %%f in (pinyin phrase_pinyin pinyin_init_letter phrase_init_letter pinyin_no
 if exist "%OUT_DIR%" rmdir /s /q "%OUT_DIR%"
 mkdir "%OUT_DIR%"
 
-:: ==================== 7.5. 生成多音字映射头文件 ====================
-echo.
-echo ===== 生成多音字映射头文件 =====
-python "%SRC_DIR%\python\opencc\build_multi_char_dict.py" "%SRC_DIR%\data\dictionary" "%BUILD_DIR%\data\multi_char_dict.inc"
-if errorlevel 1 (
-    echo 生成多音字映射失败！
-    pause
-    exit /b 1
-)
-echo 已生成 multi_char_dict.inc
 
 :: ==================== 8. 复制 .pyd (仅 PYD/NOEMBED 模式) ====================
 if "%BUILD_TYPE%"=="pyd" goto :copy_pyd

@@ -24,6 +24,8 @@
 
 #if defined(_WIN32) || defined(_WIN64)
 #include "WinUtil.hpp"
+#else
+#include <dlfcn.h>
 #endif
 
 #include <rapidjson/document.h>
@@ -183,6 +185,7 @@ std::string ReadFileUtf8(const std::string& path) {
   return content;
 }
 
+// ========== OPENCC_MOD: 路径Fallback机制修订 (start) ==========
 #if defined(_WIN32) || defined(_WIN64)
 using internal::Utf8FromWide;
 using internal::WideFromUtf8;
@@ -250,10 +253,6 @@ std::string GetModulePath(HMODULE module) {
   }
 }
 
-std::string GetCurrentProcessModulePath() {
-  return GetModulePath(nullptr);
-}
-
 std::string GetCurrentLibraryModulePath() {
   HMODULE module = nullptr;
   if (!GetModuleHandleExW(
@@ -264,17 +263,16 @@ std::string GetCurrentLibraryModulePath() {
   }
   return GetModulePath(module);
 }
-
-void AppendWindowsPortableSearchPaths(std::vector<std::string>& paths,
-                                      const std::string& modulePath) {
-  const std::string parent = GetParentDirectory(modulePath);
-  if (parent.empty()) {
-    return;
+#else
+std::string GetCurrentLibraryModulePath() {
+  Dl_info info;
+  if (dladdr(reinterpret_cast<void*>(&GetCurrentLibraryModulePath), &info) == 0) {
+    return "";
   }
-  paths.push_back(parent);
-  paths.push_back(parent + "../share/opencc");
+  return std::string(info.dli_fname);
 }
 #endif
+// ========== OPENCC_MOD: 路径Fallback机制修订 (end) ==========
 
 class ConfigInternal {
 public:
@@ -752,6 +750,57 @@ NewFilesystemResourceProvider(const std::string& configDirectory,
       new FilesystemResourceProvider(searchPaths));
 }
 
+// ========== OPENCC_MOD: external zip (start) ==========
+std::shared_ptr<ResourceProvider> BuildResourceChain(
+    const std::string& configDirectory,
+    const std::vector<std::string>& paths,
+    std::shared_ptr<ResourceProvider> externalProvider,
+    bool includeEmbeddedZip) {
+  auto chain = std::make_shared<ChainedResourceProvider>();
+
+  // 1. 外部 provider（调用者传入）
+  if (externalProvider != nullptr) {
+    chain->AddProvider(std::move(externalProvider));
+  }
+
+  // 2. DLL/EXE 同级目录
+  std::string moduleDir;
+  const std::string libraryPath = GetCurrentLibraryModulePath();
+  if (!libraryPath.empty()) {
+    moduleDir = GetParentDirectory(libraryPath);
+  }
+
+  // 3. 文件系统（configDirectory + paths + DLL/EXE 同级）
+  std::vector<std::string> effectivePaths = paths;
+  if (!moduleDir.empty()) {
+    effectivePaths.push_back(moduleDir);
+  }
+  if (!configDirectory.empty() || !effectivePaths.empty()) {
+    chain->AddProvider(
+        NewFilesystemResourceProvider(configDirectory, effectivePaths));
+  }
+
+  // 4. DLL/EXE 同级 opencc_data.zip（自动探测）
+  if (!moduleDir.empty()) {
+    const std::string externalZipPath = moduleDir + "opencc_data.zip";
+    if (isRegularFile(externalZipPath)) {
+      chain->AddProvider(
+          std::make_shared<ZipResourceProvider>(externalZipPath));
+    }
+  }
+
+  // 5. 内嵌 ZIP
+  if (includeEmbeddedZip) {
+#if defined(OPENCC_EMBEDDED_ASSETS_AVAILABLE)
+    chain->AddProvider(std::make_shared<ZipResourceProvider>(
+        opencc::embedded::kEmbeddedZip,
+        opencc::embedded::kEmbeddedZipSize));
+#endif
+  }
+
+  return chain;
+}
+// ========== OPENCC_MOD: external zip (end) ==========
 } // namespace
 
 Config::Config() : internal(new ConfigInternal()) {}
@@ -762,38 +811,49 @@ ConverterPtr Config::NewFromFile(const std::string& fileName) {
   return NewFromFile(fileName, std::vector<std::string>{}, nullptr);
 }
 
+ConverterPtr Config::NewFromFile(const std::string& fileName,
+                                 const std::vector<std::string>& paths,
+                                 const char* argv0) {
+  return NewFromFile(fileName, paths, argv0, ConfigLoadOptions());
+}
+
 ConverterPtr
 Config::NewFromFile(const std::string& fileName,
                     std::shared_ptr<ResourceProvider> provider) {
   return NewFromFile(fileName, provider, ConfigLoadOptions());
 }
 
-ConverterPtr
-Config::NewFromFile(const std::string& fileName,
-                    std::shared_ptr<ResourceProvider> provider,
-                    const ConfigLoadOptions& options) {
-  ConfigInternal* impl = reinterpret_cast<ConfigInternal*>(internal);
+// ========== OPENCC_MOD: NewFromFile (start) ==========
+ConverterPtr NewFromFileImpl(Config* config,
+                             ConfigInternal* impl,
+                             const std::string& fileName,
+                             std::shared_ptr<ResourceProvider> provider,
+                             const std::vector<std::string>& paths,
+                             const char* argv0,
+                             const ConfigLoadOptions& options) {
   impl->options = options;
-  impl->paths.clear();
-  impl->resourceProvider = nullptr;
+  impl->paths = paths;
+  if (argv0 != nullptr) {
+    std::string parent = GetParentDirectory(argv0);
+    if (!parent.empty()) {
+      impl->paths.push_back(parent);
+    }
+  }
+  if (PACKAGE_DATA_DIRECTORY != "") {
+    impl->paths.push_back(PACKAGE_DATA_DIRECTORY);
+  }
 
-  // ========== OPENCC_MOD: embedded assets fallback (start) ==========
-#if defined(OPENCC_EMBEDDED_ASSETS_AVAILABLE)
-  auto embeddedZip = std::make_shared<ZipResourceProvider>(
-      opencc::embedded::kEmbeddedZip,
-      opencc::embedded::kEmbeddedZipSize);
-
-  // 查找 JSON 配置：外部 ZIP → 文件系统 → 内嵌 ZIP
+  // 查找 JSON 配置
   std::string content;
   std::string configDirectory;
+  bool found = false;
 
   // 1. 尝试外部 provider
-  bool found = false;
   if (provider != nullptr) {
     try {
       auto resource = provider->GetResource(fileName);
       content = std::string(resource->Data(), resource->Size());
-      configDirectory = GetParentDirectory(resource->Name());
+      configDirectory = "";
       found = true;
     } catch (const FileNotFound&) {}
   }
@@ -816,72 +876,41 @@ Config::NewFromFile(const std::string& fileName,
     } catch (const FileNotFound&) {}
   }
 
-  // 3. 尝试内嵌 ZIP
+  // 3. 构造资源链
+  auto chain = BuildResourceChain(
+      configDirectory, impl->paths, provider, /*includeEmbeddedZip=*/true);
+
+  // 4. 从链中找配置（同级 ZIP + 内嵌 ZIP）
   if (!found) {
-    std::string configName = fileName;
-    size_t pos = configName.find_last_of("/\\");
-    if (pos != std::string::npos) configName = configName.substr(pos + 1);
-    auto resource = embeddedZip->GetResource(configName);
-    content = std::string(resource->Data(), resource->Size());
-    configDirectory = "";
-  }
-
-  impl->configDirectory = configDirectory;
-
-  // 构造链：外部 ZIP → 文件系统 → 内嵌 ZIP
-  auto chain = std::make_shared<ChainedResourceProvider>();
-  if (provider != nullptr) {
-    chain->AddProvider(provider);
-  }
-  if (!configDirectory.empty()) {
-    chain->AddProvider(
-        NewFilesystemResourceProvider(configDirectory, impl->paths));
-  }
-  chain->AddProvider(embeddedZip);
-  impl->resourceProvider = chain;
-
-  return NewFromString(content, std::move(chain), options);
-#else
-  impl->resourceProvider = provider;
-  std::string prefixedFileName;
-  if (provider != nullptr) {
     try {
-      const auto resource = provider->GetResource(fileName);
-      impl->configDirectory = GetParentDirectory(resource->Name());
-      return NewFromString(std::string(resource->Data(), resource->Size()),
-                           provider, options);
-    } catch (const FileNotFound&) {
-      prefixedFileName = impl->FindConfigFile(fileName);
-    }
-  } else {
-    prefixedFileName = impl->FindConfigFile(fileName);
+      std::string configName = fileName;
+      size_t pos = configName.find_last_of("/\\");
+      if (pos != std::string::npos) configName = configName.substr(pos + 1);
+      auto resource = chain->GetResource(configName);
+      content = std::string(resource->Data(), resource->Size());
+      configDirectory = "";
+      found = true;
+    } catch (const FileNotFound&) {}
   }
-  if (!isRegularFile(prefixedFileName)) {
-    throw FileNotFound(prefixedFileName);
+
+  if (!found) {
+    throw FileNotFound(fileName);
   }
-  std::string content = ReadFileUtf8(prefixedFileName);
-#if defined(_WIN32) || defined(_WIN64)
-  UTF8Util::ReplaceAll(prefixedFileName, "\\", "/");
-#endif
-  size_t slashPos = prefixedFileName.rfind("/");
-  impl->configDirectory = "";
-  if (slashPos != std::string::npos) {
-    impl->configDirectory = prefixedFileName.substr(0, slashPos) + "/";
+
+  // 5. 最终设置
+  if (!configDirectory.empty()) {
+    impl->paths.push_back(configDirectory);
   }
-  std::shared_ptr<ResourceProvider> effectiveProvider = provider;
-  if (effectiveProvider == nullptr) {
-    effectiveProvider =
-        NewFilesystemResourceProvider(impl->configDirectory, impl->paths);
-  }
-  return NewFromString(content, effectiveProvider, options);
-#endif
-  // ========== OPENCC_MOD: embedded assets fallback (end) ==========
+  impl->configDirectory = configDirectory;
+  impl->resourceProvider = std::move(chain);
+  return config->NewFromString(content, impl->resourceProvider, options);
 }
 
 ConverterPtr Config::NewFromFile(const std::string& fileName,
-                                 const std::vector<std::string>& paths,
-                                 const char* argv0) {
-  return NewFromFile(fileName, paths, argv0, ConfigLoadOptions());
+                                 std::shared_ptr<ResourceProvider> provider,
+                                 const ConfigLoadOptions& options) {
+  ConfigInternal* impl = reinterpret_cast<ConfigInternal*>(internal);
+  return NewFromFileImpl(this, impl, fileName, provider, {}, nullptr, options);
 }
 
 ConverterPtr Config::NewFromFile(const std::string& fileName,
@@ -889,101 +918,9 @@ ConverterPtr Config::NewFromFile(const std::string& fileName,
                                  const char* argv0,
                                  const ConfigLoadOptions& options) {
   ConfigInternal* impl = reinterpret_cast<ConfigInternal*>(internal);
-  impl->options = options;
-  impl->paths = paths;
-  if (argv0 != nullptr) {
-    std::string parent = GetParentDirectory(argv0);
-    if (!parent.empty()) {
-      impl->paths.push_back(parent);
-    }
-  }
-#if defined(_WIN32) || defined(_WIN64)
-  if (argv0 != nullptr) {
-    AppendWindowsPortableSearchPaths(impl->paths, argv0);
-  }
-  AppendWindowsPortableSearchPaths(impl->paths, GetCurrentProcessModulePath());
-  AppendWindowsPortableSearchPaths(impl->paths, GetCurrentLibraryModulePath());
-#endif
-  if (PACKAGE_DATA_DIRECTORY != "") {
-    impl->paths.push_back(PACKAGE_DATA_DIRECTORY);
-  }
-  // ========== OPENCC_MOD: embedded assets fallback (start) ==========
-#if defined(OPENCC_EMBEDDED_ASSETS_AVAILABLE)
-  std::string content;
-  bool foundInFileSystem = false;
-  try {
-    std::string prefixedFileName = impl->FindConfigFile(fileName);
-    if (isRegularFile(prefixedFileName)) {
-      content = ReadFileUtf8(prefixedFileName);
-      foundInFileSystem = true;
-#if defined(_WIN32) || defined(_WIN64)
-      UTF8Util::ReplaceAll(prefixedFileName, "\\", "/");
-#endif
-      size_t slashPos = prefixedFileName.rfind("/");
-      std::string configDirectory = "";
-      if (slashPos != std::string::npos) {
-        configDirectory = prefixedFileName.substr(0, slashPos) + "/";
-      }
-      if (!configDirectory.empty()) {
-        impl->paths.push_back(configDirectory);
-      }
-      impl->configDirectory = configDirectory;
-    }
-  } catch (const FileNotFound&) {
-    // will try embedded below
-  }
-
-  auto embeddedZip = std::make_shared<ZipResourceProvider>(
-      opencc::embedded::kEmbeddedZip,
-      opencc::embedded::kEmbeddedZipSize);
-  auto chain = std::make_shared<ChainedResourceProvider>();
-
-  if (foundInFileSystem) {
-    auto fsProvider =
-        NewFilesystemResourceProvider(impl->configDirectory, impl->paths);
-    chain->AddProvider(std::move(fsProvider));
-    chain->AddProvider(embeddedZip);
-    impl->resourceProvider = std::move(chain);
-  } else {
-    chain->AddProvider(embeddedZip);
-    impl->resourceProvider = std::move(chain);
-    try {
-      std::string configName = fileName;
-      size_t pos = configName.find_last_of("/\\");
-      if (pos != std::string::npos) {
-        configName = configName.substr(pos + 1);
-      }
-      auto resource = embeddedZip->GetResource(configName);
-      content = std::string(resource->Data(), resource->Size());
-    } catch (const FileNotFound&) {
-      throw FileNotFound(fileName);
-    }
-    impl->configDirectory = "";
-  }
-#else
-  std::string prefixedFileName = impl->FindConfigFile(fileName);
-  if (!isRegularFile(prefixedFileName)) {
-    throw FileNotFound(prefixedFileName);
-  }
-  std::string content = ReadFileUtf8(prefixedFileName);
-#if defined(_WIN32) || defined(_WIN64)
-  UTF8Util::ReplaceAll(prefixedFileName, "\\", "/");
-#endif // if defined(_WIN32) || defined(_WIN64)
-  size_t slashPos = prefixedFileName.rfind("/");
-  std::string configDirectory = "";
-  if (slashPos != std::string::npos) {
-    configDirectory = prefixedFileName.substr(0, slashPos) + "/";
-  }
-  if (!configDirectory.empty()) {
-    impl->paths.push_back(configDirectory);
-  }
-  impl->configDirectory = configDirectory;
-  impl->resourceProvider =
-      NewFilesystemResourceProvider(configDirectory, impl->paths);
-#endif
-  // ========== OPENCC_MOD: embedded assets fallback (end) ==========
-  return NewFromString(content, impl->resourceProvider, options);
+  return NewFromFileImpl(this, impl, fileName, nullptr, paths, argv0, options);
 }
+// ========== OPENCC_MOD: NewFromFile (end) ==========
 
 ConverterPtr Config::NewFromString(const std::string& json,
                                    const std::string& configDirectory) {

@@ -457,11 +457,47 @@ JiebaSegmentation::JiebaSegmentation(
           ? LoadMergedJiebaDictFromBuffer(dictRes->Data(), dictRes->Size())
           : DictTrie::BuildPrecomputedDictFromBuffer(dictRes->Data(), dictRes->Size());
 
-  jieba_.reset(new cppjieba::Jieba(
-      dict, modelRes->Data(), modelRes->Size(),
-      userDictPath.empty() ? "" : userDictPath,
-      idfPath.empty() ? "" : idfPath,
-      stopWordsPath.empty() ? "" : stopWordsPath));
+  // ========== OPENCC_MOD: 从 provider 加载 idf/stop_words (start) ==========
+  std::shared_ptr<const ResourceProvider::Resource> idfRes;
+  std::shared_ptr<const ResourceProvider::Resource> stopWordsRes;
+
+  if (!idfPath.empty()) {
+    try {
+      idfRes = provider->GetResource(idfPath);
+    } catch (const FileNotFound&) {}
+  } else {
+    try {
+      idfRes = provider->GetResource("jieba_dict/idf.utf8");
+    } catch (const FileNotFound&) {}
+  }
+
+  if (!stopWordsPath.empty()) {
+    try {
+      stopWordsRes = provider->GetResource(stopWordsPath);
+    } catch (const FileNotFound&) {}
+  } else {
+    try {
+      stopWordsRes = provider->GetResource("jieba_dict/stop_words.utf8");
+    } catch (const FileNotFound&) {}
+  }
+
+  // ========== OPENCC_MOD: 空 buffer 跳过 idf/stop_words 加载 (start) ==========
+  // idf 词典或停用词词典缺失时，关键词提取不可用，但分词功能正常。
+  // 构造 Jieba 时传入 nullptr 使 KeywordExtractor 跳过加载。
+  // ========== OPENCC_MOD: end ==========
+  if (idfRes && stopWordsRes) {
+    jieba_.reset(new cppjieba::Jieba(
+        dict, modelRes->Data(), modelRes->Size(),
+        userDictPath.empty() ? "" : userDictPath,
+        idfRes->Data(), idfRes->Size(),
+        stopWordsRes->Data(), stopWordsRes->Size()));
+  } else {
+    jieba_.reset(new cppjieba::Jieba(
+        dict, modelRes->Data(), modelRes->Size(),
+        userDictPath.empty() ? "" : userDictPath,
+        nullptr, 0,
+        nullptr, 0));
+  }
 }
 // ========== OPENCC_MOD: end ==========
 

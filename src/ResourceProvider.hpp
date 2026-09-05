@@ -102,6 +102,10 @@ public:
     throw FileNotFound(std::string(resourceName));
   }
 
+  // ========== OPENCC_MOD: 链式查找注释 (start) ==========
+  // 只捕获 FileNotFound 以继续尝试下一个 provider。
+  // 其他异常（如 InvalidFormat）表示资源存在但损坏，直接穿透不静默跳过。
+  // ========== OPENCC_MOD: end ==========
   std::shared_ptr<const Resource> GetResource(std::string_view resourceName) const override {
     for (const auto& p : providers_) {
       try { return p->GetResource(resourceName); }

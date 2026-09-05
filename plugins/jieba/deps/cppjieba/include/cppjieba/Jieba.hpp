@@ -58,6 +58,26 @@ class Jieba {
                 getPath(stop_word_path, "stop_words.utf8")) {
   }
   // ========== OPENCC_MOD: end ==========
+
+  // ========== OPENCC_MOD: 内存版 Jieba (start) ==========
+  Jieba(const DictTrie::PrecomputedDict& dict,
+        const char* modelData, size_t modelSize,
+        const string& user_dict_path,
+        const char* idfData, size_t idfSize,
+        const char* stopWordData, size_t stopWordSize)
+    : dict_trie_(dict, user_dict_path),
+      model_(modelData, modelSize),
+      mp_seg_(&dict_trie_),
+      hmm_seg_(&model_),
+      mix_seg_(&dict_trie_, &model_),
+      full_seg_(&dict_trie_),
+      query_seg_(&dict_trie_, &model_),
+      extractor(&dict_trie_, &model_,
+                idfData, idfSize,
+                stopWordData, stopWordSize) {
+  }
+  // ========== OPENCC_MOD: end ==========
+
   ~Jieba() {
   }
 

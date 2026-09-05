@@ -537,6 +537,9 @@ ZipResourceProvider::GetResource(std::string_view resourceName) const {
   if (ret != Z_STREAM_END) {
     throw InvalidFormat("Failed to decompress zip entry: " + entry->first);
   }
+  if (strm.total_out != entry->second.uncompressedSize) {
+    throw InvalidFormat("Size mismatch for zip entry: " + entry->first);
+  }
 
   std::string cacheKey = internal->archive->cacheKey;
   cacheKey.push_back('\n');
